@@ -17,9 +17,11 @@ public sealed class Plugin : BaseUnityPlugin
         public Vector3 axis;
     }
 
-    private ConfigEntry<string>? direction, keybind;
+    private ConfigEntry<FlipDirection>? direction;
+    private ConfigEntry<ControllerButton>? keybind;
     private ConfigEntry<float>? duration;
     private ConfigEntry<int>? presses;
+    private ConfigEntry<bool>? oppositeFlip;
 
     private Flip flip;
     private bool wasPressed;
@@ -28,10 +30,12 @@ public sealed class Plugin : BaseUnityPlugin
 
     private void Start()
     {
-        direction = Config.Bind("Flip", "Direction", "Backflip", "A backflip or frontflip");
+        direction = Config.Bind("Flip", "Direction", FlipDirection.Backflip, "A backflip or frontflip");
         duration = Config.Bind("Flip", "Duration", 0.4f, "How long a flip takes in seconds");
-        keybind = Config.Bind("Input", "Keybind", "Y", "Controller bind that triggers the flip (A, B, X, Y)");
+        keybind = Config.Bind("Input", "Keybind", ControllerButton.Y, "Controller bind that triggers the flip (A, B, X, Y)");
         presses = Config.Bind("Input", "Presses", 1, "How many times you have to press the button to trigger a flip (1-3)");
+        oppositeFlip = Config.Bind("Input", "OppositeFlip", false, "Press the button under/above your keybind to flip the other direction");
+
         Config.Save();
     }
 
@@ -53,11 +57,15 @@ public sealed class Plugin : BaseUnityPlugin
             Reset();
 
         var pressed = ButtonDown(poller);
+        var altPressed = OtherButtonDown(poller);
 
         if (pressed && !wasPressed && !flip.active)
-            Pressed();
+            Pressed(false);
+        
+        if (altPressed && !wasPressed && !flip.active)
+            Pressed(true);
 
-        wasPressed = pressed;
+        wasPressed = pressed || altPressed;
     }
 
     private void LateUpdate()
@@ -76,15 +84,24 @@ public sealed class Plugin : BaseUnityPlugin
     }
 
     private bool ButtonDown(ControllerInputPoller input) =>
-        keybind?.Value.Trim().ToUpperInvariant() switch
+        keybind?.Value switch
         {
-            "A" => input.rightControllerPrimaryButton,
-            "B" => input.rightControllerSecondaryButton,
-            "X" => input.leftControllerPrimaryButton,
-            _   => input.leftControllerSecondaryButton,
+            ControllerButton.A => input.rightControllerPrimaryButton,
+            ControllerButton.B => input.rightControllerSecondaryButton,
+            ControllerButton.X => input.leftControllerPrimaryButton,
+            _                  => input.leftControllerSecondaryButton,
         };
 
-    private void Pressed()
+    private bool OtherButtonDown(ControllerInputPoller input) =>
+        keybind?.Value switch
+        {
+            ControllerButton.A => input.rightControllerSecondaryButton,
+            ControllerButton.B => input.rightControllerPrimaryButton,
+            ControllerButton.X => input.leftControllerSecondaryButton,
+            _                  => input.leftControllerPrimaryButton,
+        };
+
+    private void Pressed(bool opposite = false)
     {
         var now = Time.unscaledTime;
         if (now - lastPress > Constants.PressWindow)
@@ -96,14 +113,26 @@ public sealed class Plugin : BaseUnityPlugin
         if (presses != null && count < presses.Value) return;
 
         Reset();
-        Spin();
+        Spin(opposite);
     }
 
-    private void Spin()
+    private void Spin(bool opposite = false)
     {
         var player = GTPlayer.Instance;
         var rig = GorillaTagger.Instance.offlineVRRig;
         if (!player || !player.playerRigidBody || !rig) return;
+
+        var flipDir = 0f;
+
+        if (direction?.Value == FlipDirection.Frontflip && opposite)
+            flipDir = -1f;
+        else if (direction?.Value == FlipDirection.Frontflip)
+            flipDir = 1f;
+        
+        if (direction?.Value == FlipDirection.Backflip && opposite)
+            flipDir = 1f;
+        else if (direction?.Value == FlipDirection.Backflip)
+            flipDir = -1f;
 
         flip = new Flip
         {
@@ -111,7 +140,7 @@ public sealed class Plugin : BaseUnityPlugin
             rot = player.playerRigidBody.rotation,
             axis = rig.transform.right.normalized,
             start = Time.time,
-            dir = string.Equals(direction?.Value, "Frontflip", StringComparison.OrdinalIgnoreCase) ? 1f : -1f,
+            dir = flipDir,
         };
     }
 
@@ -127,5 +156,21 @@ public sealed class Plugin : BaseUnityPlugin
     {
         count = 0;
         lastPress = float.NegativeInfinity;
+    }
+
+    // bingus note: BepInEx configs reset these to default value if the field is not valid, you don't need to verify that they are valid
+    private enum FlipDirection
+    {
+        Frontflip = 0,
+        Backflip
+    }
+
+    private enum ControllerButton
+    {
+        A = 0,
+        B,
+
+        X = 10,
+        Y
     }
 }
