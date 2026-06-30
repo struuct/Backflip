@@ -2,7 +2,7 @@ namespace Backflip;
 
 internal abstract class Constants
 {
-    public const string Version = "1.0.0";
+    public const string Version = "1.1.0";
     public const string ModName = "Backflip";
     public const string Guid = "struct.backflip";
 
