@@ -18,18 +18,21 @@ public sealed class Plugin : BaseUnityPlugin
     }
 
     private ConfigEntry<string>? direction, keybind;
-    private ConfigEntry<float>? duration;
+    private ConfigEntry<float>? cooldown;
     private ConfigEntry<int>? presses;
 
     private Flip flip;
     private bool wasPressed;
     private int count;
     private float lastPress = float.NegativeInfinity;
+    private float lastFlipEnd = float.NegativeInfinity;
 
     private void Start()
     {
         direction = Config.Bind("Flip", "Direction", "Backflip", "A backflip or frontflip");
-        duration = Config.Bind("Flip", "Duration", 0.4f, "How long a flip takes in seconds");
+        cooldown = Config.Bind("Flip", "Cooldown", Constants.MinCooldown,
+            new ConfigDescription("How many seconds you must wait between flips",
+                new AcceptableValueRange<float>(Constants.MinCooldown, Constants.MaxCooldown)));
         keybind = Config.Bind("Input", "Keybind", "Y", "Controller bind that triggers the flip (A, B, X, Y)");
         presses = Config.Bind("Input", "Presses", 1, "How many times you have to press the button to trigger a flip (1-3)");
         Config.Save();
@@ -54,7 +57,7 @@ public sealed class Plugin : BaseUnityPlugin
 
         var pressed = ButtonDown(poller);
 
-        if (pressed && !wasPressed && !flip.active)
+        if (pressed && !wasPressed && !flip.active && Time.time - lastFlipEnd >= cooldown!.Value)
             Pressed();
 
         wasPressed = pressed;
@@ -64,10 +67,11 @@ public sealed class Plugin : BaseUnityPlugin
     {
         if (!flip.active) return;
 
-        var t = (Time.time - flip.start) / Mathf.Max(Constants.MinFlipDuration, duration!.Value);
+        var t = (Time.time - flip.start) / Constants.FlipDuration;
         if (t >= 1f)
         {
             flip.active = false;
+            lastFlipEnd = Time.time;
             GTPlayerTransform.ApplyRotationOverride(flip.rot, Time.frameCount);
             return;
         }
@@ -118,8 +122,9 @@ public sealed class Plugin : BaseUnityPlugin
     private void Cancel()
     {
         if (!flip.active) return;
-        
+
         flip.active = false;
+        lastFlipEnd = Time.time;
         GTPlayerTransform.ApplyRotationOverride(flip.rot, Time.frameCount);
     }
 
